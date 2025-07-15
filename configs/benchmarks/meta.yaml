@@ -1,3 +1,4 @@
+use_meta_learning: true  # H1: Meta-RL (uses prev_action/prev_reward)
 env_id: "XLand-MiniGrid-R9-16x16"
 benchmark_id: "trivial-1m"
 total_timesteps: 10_000_000

@@ -245,11 +245,6 @@ class ActorCriticRNN(nn.Module):
         return jnp.zeros((batch_size, self.rnn_num_layers, self.rnn_hidden_dim), dtype=self.dtype)
 
 
-class ActorCriticNullInput(TypedDict):
-    obs_img: jax.Array
-    obs_dir: jax.Array
-
-
 class ActorCriticRNNNull(nn.Module):
     """
     Null hypothesis version of ActorCriticRNN for regular RL benchmarking.
@@ -267,7 +262,7 @@ class ActorCriticRNNNull(nn.Module):
 
     @nn.compact
     def __call__(
-        self, inputs: ActorCriticNullInput, hidden: jax.Array
+        self, inputs: ActorCriticInput, hidden: jax.Array
     ) -> tuple[distrax.Categorical, jax.Array, jax.Array]:
         B, S = inputs["obs_img"].shape[:2]
 
@@ -380,7 +375,7 @@ class ActorCriticRNNNull(nn.Module):
         obs_emb = img_encoder(inputs["obs_img"].astype(jnp.int32)).reshape(B, S, -1)
         dir_emb = direction_encoder(inputs["obs_dir"])
 
-        # [batch_size, seq_len, obs_emb + dir_emb] - no prev_action or prev_reward
+        # [batch_size, seq_len, obs_emb + dir_emb] - ignore prev_action and prev_reward for null hypothesis
         out = jnp.concatenate([obs_emb, dir_emb], axis=-1)
 
         # core networks
