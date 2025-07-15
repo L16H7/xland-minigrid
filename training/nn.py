@@ -243,3 +243,157 @@ class ActorCriticRNN(nn.Module):
 
     def initialize_carry(self, batch_size):
         return jnp.zeros((batch_size, self.rnn_num_layers, self.rnn_hidden_dim), dtype=self.dtype)
+
+
+class ActorCriticNullInput(TypedDict):
+    obs_img: jax.Array
+    obs_dir: jax.Array
+
+
+class ActorCriticRNNNull(nn.Module):
+    """
+    Null hypothesis version of ActorCriticRNN for regular RL benchmarking.
+    This version does not take prev_action and prev_reward as inputs.
+    """
+    num_actions: int
+    obs_emb_dim: int = 16
+    action_emb_dim: int = 16
+    rnn_hidden_dim: int = 64
+    rnn_num_layers: int = 1
+    head_hidden_dim: int = 64
+    img_obs: bool = False
+    dtype: Optional[Dtype] = None
+    param_dtype: Dtype = jnp.float32
+
+    @nn.compact
+    def __call__(
+        self, inputs: ActorCriticNullInput, hidden: jax.Array
+    ) -> tuple[distrax.Categorical, jax.Array, jax.Array]:
+        B, S = inputs["obs_img"].shape[:2]
+
+        # encoder from https://github.com/lcswillems/rl-starter-files/blob/master/model.py
+        if self.img_obs:
+            img_encoder = nn.Sequential(
+                [
+                    nn.Conv(
+                        16,
+                        (3, 3),
+                        strides=2,
+                        padding="VALID",
+                        kernel_init=orthogonal(math.sqrt(2)),
+                        dtype=self.dtype,
+                        param_dtype=self.param_dtype,
+                    ),
+                    nn.relu,
+                    nn.Conv(
+                        32,
+                        (3, 3),
+                        strides=2,
+                        padding="VALID",
+                        kernel_init=orthogonal(math.sqrt(2)),
+                        dtype=self.dtype,
+                        param_dtype=self.param_dtype,
+                    ),
+                    nn.relu,
+                    nn.Conv(
+                        32,
+                        (3, 3),
+                        strides=2,
+                        padding="VALID",
+                        kernel_init=orthogonal(math.sqrt(2)),
+                        dtype=self.dtype,
+                        param_dtype=self.param_dtype,
+                    ),
+                    nn.relu,
+                    nn.Conv(
+                        32,
+                        (3, 3),
+                        strides=2,
+                        padding="VALID",
+                        kernel_init=orthogonal(math.sqrt(2)),
+                        dtype=self.dtype,
+                        param_dtype=self.param_dtype,
+                    ),
+                ]
+            )
+        else:
+            img_encoder = nn.Sequential(
+                [
+                    # For small dims nn.Embed is extremely slow in bf16, so we leave everything in default dtypes
+                    EmbeddingEncoder(emb_dim=self.obs_emb_dim),
+                    nn.Conv(
+                        16,
+                        (2, 2),
+                        padding="VALID",
+                        kernel_init=orthogonal(math.sqrt(2)),
+                        dtype=self.dtype,
+                        param_dtype=self.param_dtype,
+                    ),
+                    nn.relu,
+                    nn.Conv(
+                        32,
+                        (2, 2),
+                        padding="VALID",
+                        kernel_init=orthogonal(math.sqrt(2)),
+                        dtype=self.dtype,
+                        param_dtype=self.param_dtype,
+                    ),
+                    nn.relu,
+                    nn.Conv(
+                        64,
+                        (2, 2),
+                        padding="VALID",
+                        kernel_init=orthogonal(math.sqrt(2)),
+                        dtype=self.dtype,
+                        param_dtype=self.param_dtype,
+                    ),
+                    nn.relu,
+                ]
+            )
+        direction_encoder = nn.Dense(self.action_emb_dim, dtype=self.dtype, param_dtype=self.param_dtype)
+
+        rnn_core = BatchedRNNModel(
+            self.rnn_hidden_dim, self.rnn_num_layers, dtype=self.dtype, param_dtype=self.param_dtype
+        )
+        actor = nn.Sequential(
+            [
+                nn.Dense(
+                    self.head_hidden_dim, kernel_init=orthogonal(2), dtype=self.dtype, param_dtype=self.param_dtype
+                ),
+                nn.tanh,
+                nn.Dense(
+                    self.num_actions, kernel_init=orthogonal(0.01), dtype=self.dtype, param_dtype=self.param_dtype
+                ),
+            ]
+        )
+        critic = nn.Sequential(
+            [
+                nn.Dense(
+                    self.head_hidden_dim, kernel_init=orthogonal(2), dtype=self.dtype, param_dtype=self.param_dtype
+                ),
+                nn.tanh,
+                nn.Dense(1, kernel_init=orthogonal(1.0), dtype=self.dtype, param_dtype=self.param_dtype),
+            ]
+        )
+
+        # [batch_size, seq_len, ...]
+        obs_emb = img_encoder(inputs["obs_img"].astype(jnp.int32)).reshape(B, S, -1)
+        dir_emb = direction_encoder(inputs["obs_dir"])
+
+        # [batch_size, seq_len, obs_emb + dir_emb] - no prev_action or prev_reward
+        out = jnp.concatenate([obs_emb, dir_emb], axis=-1)
+
+        # core networks
+        out, new_hidden = rnn_core(out, hidden)
+
+        # casting to full precision for the loss, as softmax/log_softmax
+        # (inside Categorical) is not stable in bf16
+        logits = actor(out).astype(jnp.float32)
+
+        dist = distrax.Categorical(logits=logits)
+        values = critic(out)
+
+        return dist, jnp.squeeze(values, axis=-1), new_hidden
+
+    def initialize_carry(self, batch_size):
+        return jnp.zeros((batch_size, self.rnn_num_layers, self.rnn_hidden_dim), dtype=self.dtype)
