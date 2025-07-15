@@ -11,3 +11,5 @@ update_epochs: 1
 num_minibatches: 32
 eval_num_envs: 4096
 eval_num_episodes: 20
+obs_emb_dim: 32
+action_emb_dim: 32
