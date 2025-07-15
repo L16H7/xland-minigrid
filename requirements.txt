@@ -1,5 +1,5 @@
+jax[cuda]
 pyrallis
 wandb
-xland-minigrid
 distrax
 tqdm
