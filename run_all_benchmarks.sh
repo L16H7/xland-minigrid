@@ -47,7 +47,7 @@ run_benchmark() {
     echo "----------------------------------------"
     
     # Run the training
-    python training/train_meta_task.py --config-path="$config_path"
+    python training/train_meta_task.py --config_path="$config_path"
     
     local exit_code=$?
     if [ $exit_code -eq 0 ]; then
