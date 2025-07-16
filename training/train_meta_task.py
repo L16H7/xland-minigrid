@@ -18,7 +18,7 @@ import wandb
 from flax.jax_utils import replicate, unreplicate
 from flax.training import orbax_utils
 from flax.training.train_state import TrainState
-from nn import ActorCriticRNN
+from nn import ActorCriticRNN, ActorCriticRNNNull
 from utils import Transition, calculate_gae, ppo_update_networks, rollout
 
 import xminigrid
@@ -39,6 +39,7 @@ class TrainConfig:
     benchmark_id: str = "trivial-1m"
     img_obs: bool = False
     # agent
+    use_meta_learning: bool = True  # True for H1 (meta-RL), False for H0 (regular RL)
     obs_emb_dim: int = 16
     action_emb_dim: int = 16
     rnn_hidden_dim: int = 1024
@@ -108,16 +109,31 @@ def make_states(config: TrainConfig):
     rng = jax.random.key(config.train_seed)
     rng, _rng = jax.random.split(rng)
 
-    network = ActorCriticRNN(
-        num_actions=env.num_actions(env_params),
-        obs_emb_dim=config.obs_emb_dim,
-        action_emb_dim=config.action_emb_dim,
-        rnn_hidden_dim=config.rnn_hidden_dim,
-        rnn_num_layers=config.rnn_num_layers,
-        head_hidden_dim=config.head_hidden_dim,
-        img_obs=config.img_obs,
-        dtype=jnp.bfloat16 if config.enable_bf16 else None,
-    )
+    # Choose network based on config
+    if config.use_meta_learning:
+        print("Using meta-learning (H1) setup with prev_action and prev_reward.")
+        network = ActorCriticRNN(
+            num_actions=env.num_actions(env_params),
+            obs_emb_dim=config.obs_emb_dim,
+            action_emb_dim=config.action_emb_dim,
+            rnn_hidden_dim=config.rnn_hidden_dim,
+            rnn_num_layers=config.rnn_num_layers,
+            head_hidden_dim=config.head_hidden_dim,
+            img_obs=config.img_obs,
+            dtype=jnp.bfloat16 if config.enable_bf16 else None,
+        )
+    else:
+        print("Using null hypothesis (H0) setup without prev_action and prev_reward.")
+        network = ActorCriticRNNNull(
+            num_actions=env.num_actions(env_params),
+            obs_emb_dim=config.obs_emb_dim,
+            action_emb_dim=config.action_emb_dim,
+            rnn_hidden_dim=config.rnn_hidden_dim,
+            rnn_num_layers=config.rnn_num_layers,
+            head_hidden_dim=config.head_hidden_dim,
+            img_obs=config.img_obs,
+            dtype=jnp.bfloat16 if config.enable_bf16 else None,
+        )
     # [batch_size, seq_len, ...]
     shapes = env.observation_shape(env_params)
 

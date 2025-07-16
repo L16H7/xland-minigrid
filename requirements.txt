@@ -1,0 +1,5 @@
+jax[cuda]
+pyrallis
+wandb
+distrax
+tqdm
