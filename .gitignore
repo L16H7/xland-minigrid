@@ -175,3 +175,4 @@ g
 scripts/*testing*
 configs/wip
 scripts/eval_example.py
+checkpoints/
